@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from homeassistant.components.light import (
@@ -23,7 +24,6 @@ from .api import BusylightApiClient
 from .const import (
     DOMAIN,
     EFFECT_BLINK,
-    EFFECT_FLASH,
     EFFECT_FLI,
     EFFECT_OFF,
     EFFECT_PULSE,
@@ -33,6 +33,10 @@ from .const import (
 from .coordinator import BusylightCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# Ignore coordinator overwrites for this long after a local command
+_ASSUMED_STATE_SECONDS = 3.0
+_DEFAULT_RGB = (0, 255, 0)
 
 
 def _rgb_to_hex(rgb: tuple[int, int, int] | list[int]) -> str:
@@ -45,7 +49,20 @@ def _brightness_to_dim(brightness: int | None) -> float:
     """Convert HA brightness (0-255) to API dim (0.0-1.0)."""
     if brightness is None:
         return 1.0
-    return max(0.0, min(1.0, brightness / 255.0))
+    return max(0.05, min(1.0, brightness / 255.0))
+
+
+def _parse_rgb(value: Any) -> tuple[int, int, int] | None:
+    """Parse API rgb; return None if missing or pure black."""
+    if not isinstance(value, (list, tuple)) or len(value) < 3:
+        return None
+    try:
+        rgb = (int(value[0]), int(value[1]), int(value[2]))
+    except (TypeError, ValueError):
+        return None
+    if rgb == (0, 0, 0):
+        return None
+    return rgb
 
 
 def _lights_map(coordinator: BusylightCoordinator) -> dict[int, dict[str, Any]]:
@@ -108,6 +125,7 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
         self.entry = entry
         self.light_id = light_id
         self._light_data = light_data
+        self._assumed_until = 0.0
 
         name = light_data.get("name") or f"Light {light_id}"
 
@@ -118,16 +136,19 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
             manufacturer="Busylight for Humans",
             model=name,
             via_device=(DOMAIN, entry.unique_id),
-            configuration_url=f"http://{entry.data.get('host')}:{entry.data.get('port', 8000)}/docs",
+            configuration_url=(
+                f"http://{entry.data.get('host')}:{entry.data.get('port', 8000)}/docs"
+            ),
         )
 
         self._is_on = bool(light_data.get("is_on", False))
-        self._rgb_color: tuple[int, int, int] | None = None
-        rgb = light_data.get("rgb")
-        if isinstance(rgb, (list, tuple)) and len(rgb) >= 3:
-            self._rgb_color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        self._rgb_color = _parse_rgb(light_data.get("rgb")) or _DEFAULT_RGB
         self._brightness = 255
         self._effect = EFFECT_OFF
+
+    def _mark_assumed(self) -> None:
+        """Protect optimistic state from the next coordinator poll."""
+        self._assumed_until = time.monotonic() + _ASSUMED_STATE_SECONDS
 
     @property
     def available(self) -> bool:
@@ -153,27 +174,65 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
+        # Keep local optimistic state for a short window after user commands.
+        # API status during effects often reports black / is_on=false and causes UI glitches.
+        if time.monotonic() < self._assumed_until:
+            self.async_write_ha_state()
+            return
+
         data = _lights_map(self.coordinator).get(self.light_id)
         if data is None:
             self.async_write_ha_state()
             return
 
         self._light_data = data
-        self._is_on = bool(data.get("is_on", False))
-        rgb = data.get("rgb")
-        if isinstance(rgb, (list, tuple)) and len(rgb) >= 3:
-            self._rgb_color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        api_on = bool(data.get("is_on", False))
+        api_rgb = _parse_rgb(data.get("rgb"))
+
+        # Only adopt is_on from API when we are in solid (no effect) mode,
+        # or when the API clearly agrees we are on.
+        if self._effect == EFFECT_OFF:
+            self._is_on = api_on
+            if api_on and api_rgb is not None:
+                self._rgb_color = api_rgb
+            elif not api_on:
+                # Off: keep last known color so the UI does not flash black
+                pass
+        else:
+            # Effect running: trust local on + color; only update if API has a real color
+            self._is_on = True
+            if api_rgb is not None:
+                self._rgb_color = api_rgb
+
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on / set color / start effect."""
         effect = kwargs.get(ATTR_EFFECT, self._effect)
+        if effect is None:
+            effect = EFFECT_OFF
+
         brightness = kwargs.get(ATTR_BRIGHTNESS, self._brightness)
-        rgb = kwargs.get(ATTR_RGB_COLOR, self._rgb_color or (0, 255, 0))
+        if brightness is None:
+            brightness = 255
+
+        rgb = kwargs.get(ATTR_RGB_COLOR, self._rgb_color or _DEFAULT_RGB)
+        if not rgb or rgb == (0, 0, 0):
+            rgb = self._rgb_color if self._rgb_color and self._rgb_color != (0, 0, 0) else _DEFAULT_RGB
+
         dim = _brightness_to_dim(brightness)
         color = _rgb_to_hex(rgb)
 
         try:
+            # Leaving an effect for solid color: stop the effect first so the
+            # device is not stuck mid-animation reporting black.
+            if (
+                self._effect != EFFECT_OFF
+                and (effect == EFFECT_OFF or effect is None)
+                and (ATTR_EFFECT in kwargs or ATTR_RGB_COLOR in kwargs or ATTR_BRIGHTNESS in kwargs)
+            ):
+                await self.client.async_turn_off(self.light_id)
+
             if effect and effect != EFFECT_OFF:
                 if effect == EFFECT_BLINK:
                     await self.client.async_blink(
@@ -187,15 +246,6 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
                     await self.client.async_pulse(
                         self.light_id, color=color, dim=dim, speed="medium", count=0
                     )
-                elif effect == EFFECT_FLASH:
-                    await self.client.async_flash(
-                        self.light_id,
-                        color_a=color,
-                        color_b="#0000ff",
-                        dim=dim,
-                        speed="medium",
-                        count=0,
-                    )
                 elif effect == EFFECT_FLI:
                     await self.client.async_fli(
                         self.light_id, color=color, dim=dim, speed="medium", count=0
@@ -206,17 +256,15 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
                     )
                     effect = EFFECT_OFF
             else:
-                await self.client.async_turn_on(
-                    self.light_id, color=color, dim=dim
-                )
+                await self.client.async_turn_on(self.light_id, color=color, dim=dim)
                 effect = EFFECT_OFF
 
             self._is_on = True
-            self._brightness = brightness if brightness is not None else 255
-            self._rgb_color = tuple(rgb) if rgb else self._rgb_color
+            self._brightness = int(brightness)
+            self._rgb_color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
             self._effect = effect
+            self._mark_assumed()
             self.async_write_ha_state()
-            await self.coordinator.async_request_refresh()
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Failed to turn on light %s: %s", self.light_id, err)
             raise
@@ -227,8 +275,8 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
             await self.client.async_turn_off(self.light_id)
             self._is_on = False
             self._effect = EFFECT_OFF
+            self._mark_assumed()
             self.async_write_ha_state()
-            await self.coordinator.async_request_refresh()
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Failed to turn off light %s: %s", self.light_id, err)
             raise
