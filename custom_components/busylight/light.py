@@ -1,0 +1,220 @@
+"""Light platform for Busylight for Humans."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_EFFECT,
+    ATTR_RGB_COLOR,
+    ColorMode,
+    LightEntity,
+    LightEntityFeature,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .api import BusylightApiClient
+from .const import (
+    DOMAIN,
+    EFFECT_BLINK,
+    EFFECT_FLASH,
+    EFFECT_OFF,
+    EFFECT_PULSE,
+    EFFECT_RAINBOW,
+    SUPPORTED_EFFECTS,
+)
+from .coordinator import BusylightCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _rgb_to_hex(rgb: tuple[int, int, int] | list[int]) -> str:
+    """Convert RGB tuple to hex string the API accepts."""
+    r, g, b = (max(0, min(255, int(c))) for c in rgb)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _brightness_to_dim(brightness: int | None) -> float:
+    """Convert HA brightness (0-255) to API dim (0.0-1.0)."""
+    if brightness is None:
+        return 1.0
+    return max(0.0, min(1.0, brightness / 255.0))
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up Busylight lights from a config entry."""
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator: BusylightCoordinator = data["coordinator"]
+    client: BusylightApiClient = data["client"]
+
+    if not coordinator.data:
+        await coordinator.async_request_refresh()
+
+    entities: list[BusylightLight] = []
+    for light_id, light_data in (coordinator.data or {}).items():
+        entities.append(
+            BusylightLight(
+                coordinator=coordinator,
+                client=client,
+                entry=entry,
+                light_id=light_id,
+                light_data=light_data,
+            )
+        )
+
+    async_add_entities(entities)
+
+
+class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
+    """Representation of a single Busylight device as an RGB light with effects."""
+
+    _attr_has_entity_name = True
+    _attr_name = None
+    _attr_supported_color_modes = {ColorMode.RGB}
+    _attr_color_mode = ColorMode.RGB
+    _attr_supported_features = LightEntityFeature.EFFECT
+    _attr_effect_list = SUPPORTED_EFFECTS
+
+    def __init__(
+        self,
+        coordinator: BusylightCoordinator,
+        client: BusylightApiClient,
+        entry: ConfigEntry,
+        light_id: int,
+        light_data: dict[str, Any],
+    ) -> None:
+        super().__init__(coordinator)
+        self.client = client
+        self.entry = entry
+        self.light_id = light_id
+        self._light_data = light_data
+
+        name = light_data.get("name") or f"Light {light_id}"
+
+        self._attr_unique_id = f"{entry.unique_id}_{light_id}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.unique_id}_{light_id}")},
+            name=name,
+            manufacturer="Busylight for Humans",
+            model=name,
+            via_device=(DOMAIN, entry.unique_id),
+            configuration_url=f"http://{entry.data.get('host')}:{entry.data.get('port', 8000)}/docs",
+        )
+
+        self._is_on = bool(light_data.get("is_on", False))
+        self._rgb_color: tuple[int, int, int] | None = None
+        rgb = light_data.get("rgb")
+        if isinstance(rgb, (list, tuple)) and len(rgb) >= 3:
+            self._rgb_color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        self._brightness = 255
+        self._effect = EFFECT_OFF
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and self.light_id in (
+            self.coordinator.data or {}
+        )
+
+    @property
+    def is_on(self) -> bool:
+        return self._is_on
+
+    @property
+    def brightness(self) -> int | None:
+        return self._brightness
+
+    @property
+    def rgb_color(self) -> tuple[int, int, int] | None:
+        return self._rgb_color
+
+    @property
+    def effect(self) -> str | None:
+        return self._effect
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        data = (self.coordinator.data or {}).get(self.light_id)
+        if data is None:
+            self.async_write_ha_state()
+            return
+
+        self._light_data = data
+        self._is_on = bool(data.get("is_on", False))
+        rgb = data.get("rgb")
+        if isinstance(rgb, (list, tuple)) and len(rgb) >= 3:
+            self._rgb_color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the light on / set color / start effect."""
+        effect = kwargs.get(ATTR_EFFECT, self._effect)
+        brightness = kwargs.get(ATTR_BRIGHTNESS, self._brightness)
+        rgb = kwargs.get(ATTR_RGB_COLOR, self._rgb_color or (0, 255, 0))
+        dim = _brightness_to_dim(brightness)
+        color = _rgb_to_hex(rgb)
+
+        try:
+            if effect and effect != EFFECT_OFF:
+                if effect == EFFECT_BLINK:
+                    await self.client.async_blink(
+                        self.light_id, color=color, dim=dim, speed="medium", count=0
+                    )
+                elif effect == EFFECT_RAINBOW:
+                    await self.client.async_rainbow(
+                        self.light_id, dim=dim, speed="medium"
+                    )
+                elif effect == EFFECT_PULSE:
+                    await self.client.async_pulse(
+                        self.light_id, color=color, dim=dim, speed="medium", count=0
+                    )
+                elif effect == EFFECT_FLASH:
+                    await self.client.async_flash(
+                        self.light_id,
+                        color_a=color,
+                        color_b="#0000ff",
+                        dim=dim,
+                        speed="medium",
+                        count=0,
+                    )
+                else:
+                    await self.client.async_turn_on(
+                        self.light_id, color=color, dim=dim
+                    )
+                    effect = EFFECT_OFF
+            else:
+                await self.client.async_turn_on(
+                    self.light_id, color=color, dim=dim
+                )
+                effect = EFFECT_OFF
+
+            self._is_on = True
+            self._brightness = brightness if brightness is not None else 255
+            self._rgb_color = tuple(rgb) if rgb else self._rgb_color
+            self._effect = effect
+            self.async_write_ha_state()
+            await self.coordinator.async_request_refresh()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to turn on light %s: %s", self.light_id, err)
+            raise
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the light off."""
+        try:
+            await self.client.async_turn_off(self.light_id)
+            self._is_on = False
+            self._effect = EFFECT_OFF
+            self.async_write_ha_state()
+            await self.coordinator.async_request_refresh()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Failed to turn off light %s: %s", self.light_id, err)
+            raise
