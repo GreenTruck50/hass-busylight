@@ -75,7 +75,6 @@ The integration uses these endpoints:
 - `POST /api/v1/lights/{id}/blink`
 - `POST /api/v1/effects/{id}/rainbow`
 - `POST /api/v1/effects/{id}/pulse`
-- `POST /api/v1/effects/{id}/flash`
 
 ## Development / Contributing
 
