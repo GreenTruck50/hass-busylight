@@ -19,7 +19,7 @@ Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny
 
 ## Requirements
 
-1. A machine with USB Busylight-compatible lights attached.
+1. A machine with USB [Busylight-compatible](https://jnyjny.github.io/busylight/devices/) lights attached.
 2. [Busylight for Humans](https://github.com/JnyJny/busylight) installed with the Web API extra:
 
    ```bash
@@ -27,7 +27,7 @@ Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny
    busyserve --host 0.0.0.0 --port 8000
    ```
 
-   On Linux you also need the udev rules (see upstream docs).
+   On Linux you also need the udev rules ([see upstream docs](https://jnyjny.github.io/busylight/installation/#linux-udev-rules)).
 
 3. Home Assistant that can reach the `busyserve` host on the network.
 
