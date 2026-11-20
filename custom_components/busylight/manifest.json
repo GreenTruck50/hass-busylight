@@ -4,14 +4,9 @@
   "codeowners": ["@GreenTruck50"],
   "config_flow": true,
   "documentation": "https://github.com/GreenTruck50/hass-busylight",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
   "issue_tracker": "https://github.com/GreenTruck50/hass-busylight/issues",
   "requirements": ["aiohttp>=3.9.0"],
-  "ssdp": [],
-  "zeroconf": [],
-  "homekit": [],
-  "dependencies": [],
-  "after_dependencies": [],
-  "version": "1.0.0",
-  "iot_class": "local_polling",
-  "integration_type": "hub"
+  "version": "1.0.0"
 }
