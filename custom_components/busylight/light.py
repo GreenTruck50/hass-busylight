@@ -24,6 +24,7 @@ from .const import (
     DOMAIN,
     EFFECT_BLINK,
     EFFECT_FLASH,
+    EFFECT_FLI,
     EFFECT_OFF,
     EFFECT_PULSE,
     EFFECT_RAINBOW,
@@ -53,7 +54,6 @@ def _lights_map(coordinator: BusylightCoordinator) -> dict[int, dict[str, Any]]:
     lights = data.get("lights")
     if isinstance(lights, dict):
         return lights
-    # Backward-compatible if old shape ever appears
     return {k: v for k, v in data.items() if isinstance(k, int)}
 
 
@@ -195,6 +195,10 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
                         dim=dim,
                         speed="medium",
                         count=0,
+                    )
+                elif effect == EFFECT_FLI:
+                    await self.client.async_fli(
+                        self.light_id, color=color, dim=dim, speed="medium", count=0
                     )
                 else:
                     await self.client.async_turn_on(
