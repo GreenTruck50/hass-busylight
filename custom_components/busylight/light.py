@@ -47,6 +47,16 @@ def _brightness_to_dim(brightness: int | None) -> float:
     return max(0.0, min(1.0, brightness / 255.0))
 
 
+def _lights_map(coordinator: BusylightCoordinator) -> dict[int, dict[str, Any]]:
+    """Return the lights dict from coordinator data."""
+    data = coordinator.data or {}
+    lights = data.get("lights")
+    if isinstance(lights, dict):
+        return lights
+    # Backward-compatible if old shape ever appears
+    return {k: v for k, v in data.items() if isinstance(k, int)}
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -61,7 +71,7 @@ async def async_setup_entry(
         await coordinator.async_request_refresh()
 
     entities: list[BusylightLight] = []
-    for light_id, light_data in (coordinator.data or {}).items():
+    for light_id, light_data in _lights_map(coordinator).items():
         entities.append(
             BusylightLight(
                 coordinator=coordinator,
@@ -121,8 +131,8 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
 
     @property
     def available(self) -> bool:
-        return self.coordinator.last_update_success and self.light_id in (
-            self.coordinator.data or {}
+        return self.coordinator.last_update_success and self.light_id in _lights_map(
+            self.coordinator
         )
 
     @property
@@ -143,7 +153,7 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        data = (self.coordinator.data or {}).get(self.light_id)
+        data = _lights_map(self.coordinator).get(self.light_id)
         if data is None:
             self.async_write_ha_state()
             return
