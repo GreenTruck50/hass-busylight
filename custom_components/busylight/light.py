@@ -49,7 +49,7 @@ def _brightness_to_dim(brightness: int | None) -> float:
     """Convert HA brightness (0-255) to API dim (0.0-1.0)."""
     if brightness is None:
         return 1.0
-    return max(0.05, min(1.0, brightness / 255.0))
+    return max(0.0, min(1.0, brightness / 255.0))
 
 
 def _parse_rgb(value: Any) -> tuple[int, int, int] | None:
