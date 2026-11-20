@@ -24,11 +24,14 @@ from .api import BusylightApiClient
 from .const import (
     DOMAIN,
     EFFECT_BLINK,
+    EFFECT_FLASH,
     EFFECT_FLI,
     EFFECT_OFF,
     EFFECT_PULSE,
     EFFECT_RAINBOW,
     SUPPORTED_EFFECTS,
+    effect_name,
+    parse_effect,
 )
 from .coordinator import BusylightCoordinator
 
@@ -208,9 +211,7 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on / set color / start effect."""
-        effect = kwargs.get(ATTR_EFFECT, self._effect)
-        if effect is None:
-            effect = EFFECT_OFF
+        effect, speed = parse_effect(kwargs.get(ATTR_EFFECT, self._effect))
 
         brightness = kwargs.get(ATTR_BRIGHTNESS, self._brightness)
         if brightness is None:
@@ -236,19 +237,30 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
             if effect and effect != EFFECT_OFF:
                 if effect == EFFECT_BLINK:
                     await self.client.async_blink(
-                        self.light_id, color=color, dim=dim, speed="medium", count=0
+                        self.light_id, color=color, dim=dim, speed=speed, count=0
                     )
                 elif effect == EFFECT_RAINBOW:
                     await self.client.async_rainbow(
-                        self.light_id, dim=dim, speed="medium"
+                        self.light_id, dim=dim, speed=speed
                     )
                 elif effect == EFFECT_PULSE:
                     await self.client.async_pulse(
-                        self.light_id, color=color, dim=dim, speed="medium", count=0
+                        self.light_id, color=color, dim=dim, speed=speed, count=0
+                    )
+                elif effect == EFFECT_FLASH:
+                    # The v1 flash endpoint alternates between two colors;
+                    # this integration fixes them to red / blue.
+                    await self.client.async_flash(
+                        self.light_id,
+                        color_a="red",
+                        color_b="blue",
+                        dim=dim,
+                        speed=speed,
+                        count=0,
                     )
                 elif effect == EFFECT_FLI:
                     await self.client.async_fli(
-                        self.light_id, color=color, dim=dim, speed="medium", count=0
+                        self.light_id, color=color, dim=dim, speed=speed, count=0
                     )
                 else:
                     await self.client.async_turn_on(
@@ -262,7 +274,7 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
             self._is_on = True
             self._brightness = int(brightness)
             self._rgb_color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
-            self._effect = effect
+            self._effect = effect_name(effect, speed)
             self._mark_assumed()
             self.async_write_ha_state()
         except Exception as err:  # noqa: BLE001

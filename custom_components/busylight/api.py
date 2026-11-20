@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
+    EFFECT_FLASH_PATH,
     EFFECT_FLI_PATH,
     EFFECT_PULSE_PATH,
     EFFECT_RAINBOW_PATH,
@@ -168,6 +169,28 @@ class BusylightApiClient:
         path = EFFECT_PULSE_PATH.format(light_id=light_id)
         payload = {
             "color": color,
+            "dim": max(0.0, min(1.0, dim)),
+            "speed": speed,
+            "count": count,
+            "led": led,
+        }
+        return await self._request("POST", path, payload)
+
+    async def async_flash(
+        self,
+        light_id: int,
+        color_a: str = "red",
+        color_b: str = "blue",
+        dim: float = 1.0,
+        speed: str = "slow",
+        count: int = 0,
+        led: int = 0,
+    ) -> dict[str, Any]:
+        """Start flash effect (alternate between two colors)."""
+        path = EFFECT_FLASH_PATH.format(light_id=light_id)
+        payload = {
+            "color_a": color_a,
+            "color_b": color_b,
             "dim": max(0.0, min(1.0, dim)),
             "speed": speed,
             "count": count,

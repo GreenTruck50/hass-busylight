@@ -5,16 +5,21 @@ Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny
 ## Features
 
 - **Config flow** – add a Busylight host (IP/hostname + port, optional Basic Auth)
-- **One HA device per physical light** discovered on the host
-- **RGB light entity** per device with brightness
-- **Effects** exposed natively via the light entity:
-  - `off` (solid color)
-  - `blink`
-  - `rainbow`
-  - `pulse`
-  - `flash`
-- Uses the modern `/api/v1/` endpoints
-- Local polling coordinator
+- **One device per `busyserve` host**, carrying a **Health** connectivity binary sensor (`status`, `lights_available`, `timestamp`)
+- **One device per physical light** discovered on that host, each with an **RGB light entity** and brightness (`dim` 0.0–1.0)
+- **Effects** exposed natively on the light entity — every animated effect is offered in three speeds:
+
+  | Effect | Names in the effect picker | Behaviour |
+  |--------|----------------------------|-----------|
+  | `off` | `off` | Solid color — whatever RGB color is set on the entity |
+  | `blink` | `blink slow` · `blink medium` · `blink fast` | Blinks in the selected color |
+  | `rainbow` | `rainbow slow` · `rainbow medium` · `rainbow fast` | Cycles through the color spectrum |
+  | `pulse` | `pulse slow` · `pulse medium` · `pulse fast` | Breathing / pulsing in the selected color |
+  | `flash` | `flash slow` · `flash medium` · `flash fast` | Alternates **red ↔ blue** |
+  | `fli` | `fli slow` · `fli medium` · `fli fast` | Legacy FLI pattern (deprecated compatibility endpoint) |
+
+- Uses the modern `/api/v1/` endpoints (only `fli` falls back to a deprecated compatibility route)
+- Local polling coordinator – default every 10 s, configurable from 5 to 300 s in the integration options
 - HACS-ready
 
 ## Requirements
@@ -28,6 +33,14 @@ Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny
    ```
 
    On Linux you also need the udev rules ([see upstream docs](https://jnyjny.github.io/busylight/installation/#linux-udev-rules)).
+
+   To protect the API with Basic Auth, start `busyserve` with the upstream environment variables set, otherwise leave the username/password fields empty:
+
+   ```bash
+   export BUSYLIGHT_API_USER="admin"
+   export BUSYLIGHT_API_PASS="secret"
+   busyserve --host 0.0.0.0 --port 8000
+   ```
 
 3. Home Assistant that can reach the `busyserve` host on the network.
 
@@ -55,31 +68,46 @@ Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny
 | Username  | no       | –       | Optional HTTP Basic Auth user        |
 | Password  | no       | –       | Optional HTTP Basic Auth password    |
 
-After adding the host, every light reported by `GET /api/v1/lights` appears as its own device with an RGB light entity.
+After adding the host, Home Assistant creates a `Busylight (<host>)` device with the **Health** sensor, plus one device with an RGB light entity for every light reported by `GET /api/v1/lights`.
 
 ## Usage
 
-- Turn the light on/off and set RGB color + brightness from the normal light card or services.
-- Choose an effect from the effect list on the light entity (or via `light.turn_on` with `effect:`).
-- The integration polls the API (default every 10 s; changeable in the integration options).
+- Turn the light on/off and set an RGB color + brightness from the normal light card or via the `light.turn_on` / `light.turn_off` services.
+- Pick an effect — including its speed — from the effect list on the light entity, or call the service directly:
+
+  ```yaml
+  action: light.turn_on
+  target:
+    entity_id: light.desk_0
+  data:
+    effect: "pulse fast"
+    brightness: 200
+  ```
+
+- `flash` always alternates **red ↔ blue**; the selected RGB color is ignored while it runs. The colored effects (`blink`, `pulse`, `fli`) use the entity's RGB color.
+- Changing brightness or color while an effect is running re-applies that effect (handy for dimming it). Select `off` in the effect list to return to a solid color.
+- Effect names without a speed (`effect: "rainbow"`) are still accepted and default to `medium`.
+- The integration polls the API every 10 s by default; change it to anything from 5 to 300 seconds in the integration's **Configure** dialog.
 
 ## Supported API surface
 
-The integration uses these endpoints:
+Endpoints the integration calls:
 
-- `GET /api/v1/system/health`
-- `GET /api/v1/lights`
-- `GET /api/v1/lights/{id}/status`
-- `POST /api/v1/lights/{id}/on`
+- `GET /api/v1/system/health` – feeds the Health binary sensor
+- `GET /api/v1/lights` – device discovery and state polling
+- `POST /api/v1/lights/{id}/on` – solid color (`color` as hex, `dim` 0.0–1.0, `led`)
 - `POST /api/v1/lights/{id}/off`
-- `POST /api/v1/lights/{id}/blink`
-- `POST /api/v1/effects/{id}/rainbow`
-- `POST /api/v1/effects/{id}/pulse`
-- `POST /api/v1/effects/{id}/flash`
+- `POST /api/v1/lights/{id}/blink` – `color`, `dim`, `speed`, `count`, `led`
+- `POST /api/v1/effects/{id}/rainbow` – `dim`, `speed`, `led`
+- `POST /api/v1/effects/{id}/pulse` – `color`, `dim`, `speed`, `count`, `led`
+- `POST /api/v1/effects/{id}/flash` – `color_a`, `color_b`, `dim`, `speed`, `count`, `led`
+- `GET /light/{id}/fli` – **deprecated compatibility endpoint**; the v1 API has no `fli` route, so this is the only way to start that effect
+
+`speed` is always one of `slow`, `medium` or `fast` and comes from the effect name chosen in Home Assistant. `GET /api/v1/lights/{id}/status` is implemented in the API client but is not used for polling — the coordinator refreshes every light with a single `GET /api/v1/lights` call.
 
 ## Development / Contributing
 
-PRs welcome. Please keep the integration compatible with current Home Assistant quality guidelines.
+PRs welcome. Please keep the integration compatible with current Home Assistant quality guidelines — every push, PR and nightly run is checked by [hassfest](.github/workflows/hassfest.yml).
 
 ## License
 
