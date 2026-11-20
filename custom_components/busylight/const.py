@@ -18,12 +18,16 @@ EFFECT_PULSE_PATH = f"{API_PREFIX}/effects/{{light_id}}/pulse"
 EFFECT_FLASH_PATH = f"{API_PREFIX}/effects/{{light_id}}/flash"
 SYSTEM_HEALTH_PATH = f"{API_PREFIX}/system/health"
 
+# Compatibility / legacy effect path (GET)
+EFFECT_FLI_PATH = "/light/{light_id}/fli"
+
 # Effect names exposed to Home Assistant
 EFFECT_OFF = "off"
 EFFECT_BLINK = "blink"
 EFFECT_RAINBOW = "rainbow"
 EFFECT_PULSE = "pulse"
 EFFECT_FLASH = "flash"
+EFFECT_FLI = "fli"
 
 SUPPORTED_EFFECTS = [
     EFFECT_OFF,
@@ -31,6 +35,7 @@ SUPPORTED_EFFECTS = [
     EFFECT_RAINBOW,
     EFFECT_PULSE,
     EFFECT_FLASH,
+    EFFECT_FLI,
 ]
 
 # Speed options used by the API
