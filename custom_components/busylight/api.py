@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
-    API_PREFIX,
     EFFECT_FLASH_PATH,
+    EFFECT_FLI_PATH,
     EFFECT_PULSE_PATH,
     EFFECT_RAINBOW_PATH,
     LIGHT_BLINK_PATH,
@@ -60,8 +61,14 @@ class BusylightApiClient:
         method: str,
         path: str,
         json_data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> Any:
         url = f"{self.base_url}{path}"
+        if params:
+            # Filter None and stringify values for query string
+            clean = {k: v for k, v in params.items() if v is not None}
+            if clean:
+                url = f"{url}?{urlencode(clean)}"
         try:
             async with self.session.request(
                 method,
@@ -191,6 +198,26 @@ class BusylightApiClient:
             "led": led,
         }
         return await self._request("POST", path, payload)
+
+    async def async_fli(
+        self,
+        light_id: int,
+        color: str = "red",
+        dim: float = 1.0,
+        speed: str = "slow",
+        count: int = 0,
+        led: int = 0,
+    ) -> dict[str, Any]:
+        """Start legacy FLI effect (compatibility GET endpoint)."""
+        path = EFFECT_FLI_PATH.format(light_id=light_id)
+        params = {
+            "color": color,
+            "dim": max(0.0, min(1.0, dim)),
+            "speed": speed,
+            "count": count,
+            "led": led,
+        }
+        return await self._request("GET", path, params=params)
 
     async def async_close(self) -> None:
         """Close the client (session is shared with HA)."""
