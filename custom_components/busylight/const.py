@@ -15,7 +15,6 @@ LIGHT_OFF_PATH = f"{API_PREFIX}/lights/{{light_id}}/off"
 LIGHT_BLINK_PATH = f"{API_PREFIX}/lights/{{light_id}}/blink"
 EFFECT_RAINBOW_PATH = f"{API_PREFIX}/effects/{{light_id}}/rainbow"
 EFFECT_PULSE_PATH = f"{API_PREFIX}/effects/{{light_id}}/pulse"
-EFFECT_FLASH_PATH = f"{API_PREFIX}/effects/{{light_id}}/flash"
 SYSTEM_HEALTH_PATH = f"{API_PREFIX}/system/health"
 
 # Compatibility / legacy effect path (GET)
@@ -26,7 +25,6 @@ EFFECT_OFF = "off"
 EFFECT_BLINK = "blink"
 EFFECT_RAINBOW = "rainbow"
 EFFECT_PULSE = "pulse"
-EFFECT_FLASH = "flash"
 EFFECT_FLI = "fli"
 
 SUPPORTED_EFFECTS = [
@@ -34,7 +32,6 @@ SUPPORTED_EFFECTS = [
     EFFECT_BLINK,
     EFFECT_RAINBOW,
     EFFECT_PULSE,
-    EFFECT_FLASH,
     EFFECT_FLI,
 ]
 
