@@ -15,10 +15,9 @@ Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny
   | `blink` | `blink slow` · `blink medium` · `blink fast` | Blinks in the selected color |
   | `rainbow` | `rainbow slow` · `rainbow medium` · `rainbow fast` | Cycles through the color spectrum |
   | `pulse` | `pulse slow` · `pulse medium` · `pulse fast` | Breathing / pulsing in the selected color |
-  | `flash` | `flash slow` · `flash medium` · `flash fast` | Alternates **red ↔ blue** |
-  | `fli` | `fli slow` · `fli medium` · `fli fast` | Legacy FLI pattern (deprecated compatibility endpoint) |
+  | `Police Flash (fli)` | `Police Flash (fli) slow` · `Police Flash (fli) medium` · `Police Flash (fli) fast` | FLI ("GetFlashyIndication") — alternates **red ↔ blue** |
 
-- Uses the modern `/api/v1/` endpoints (only `fli` falls back to a deprecated compatibility route)
+- Uses the modern `/api/v1/` endpoints exclusively — even **Police Flash (fli)** goes through the v1 flash route, no deprecated compatibility endpoints
 - Local polling coordinator – default every 10 s, configurable from 5 to 300 s in the integration options
 - HACS-ready
 
@@ -84,9 +83,9 @@ After adding the host, Home Assistant creates a `Busylight (<host>)` device with
     brightness: 200
   ```
 
-- `flash` always alternates **red ↔ blue**; the selected RGB color is ignored while it runs. The colored effects (`blink`, `pulse`, `fli`) use the entity's RGB color.
+- **Police Flash (fli)** always alternates **red ↔ blue**; the selected RGB color is ignored while it runs. The colored effects (`blink`, `pulse`) use the entity's RGB color.
 - Changing brightness or color while an effect is running re-applies that effect (handy for dimming it). Select `off` in the effect list to return to a solid color.
-- Effect names without a speed (`effect: "rainbow"`) are still accepted and default to `medium`.
+- Effect matching is case-insensitive, names without a speed (`effect: "rainbow"`) default to `medium`, and the older spellings (`"fli"`, `"fli fast"`) keep working even though the picker shows **Police Flash (fli)**.
 - The integration polls the API every 10 s by default; change it to anything from 5 to 300 seconds in the integration's **Configure** dialog.
 
 ## Supported API surface
@@ -100,10 +99,9 @@ Endpoints the integration calls:
 - `POST /api/v1/lights/{id}/blink` – `color`, `dim`, `speed`, `count`, `led`
 - `POST /api/v1/effects/{id}/rainbow` – `dim`, `speed`, `led`
 - `POST /api/v1/effects/{id}/pulse` – `color`, `dim`, `speed`, `count`, `led`
-- `POST /api/v1/effects/{id}/flash` – `color_a`, `color_b`, `dim`, `speed`, `count`, `led`
-- `GET /light/{id}/fli` – **deprecated compatibility endpoint**; the v1 API has no `fli` route, so this is the only way to start that effect
+- `POST /api/v1/effects/{id}/flash` – used for **Police Flash (fli)**: `color_a: "red"`, `color_b: "blue"`, `dim`, `speed`, `count`, `led`
 
-`speed` is always one of `slow`, `medium` or `fast` and comes from the effect name chosen in Home Assistant. `GET /api/v1/lights/{id}/status` is implemented in the API client but is not used for polling — the coordinator refreshes every light with a single `GET /api/v1/lights` call.
+`speed` is always one of `slow`, `medium` or `fast` and comes from the effect name chosen in Home Assistant. The deprecated compatibility routes (`GET /light/{id}/fli`, `/light/{id}/on`, …) are never called. `GET /api/v1/lights/{id}/status` is implemented in the API client but is not used for polling — the coordinator refreshes every light with a single `GET /api/v1/lights` call.
 
 ## Development / Contributing
 

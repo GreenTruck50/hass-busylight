@@ -24,7 +24,6 @@ from .api import BusylightApiClient
 from .const import (
     DOMAIN,
     EFFECT_BLINK,
-    EFFECT_FLASH,
     EFFECT_FLI,
     EFFECT_OFF,
     EFFECT_PULSE,
@@ -247,20 +246,16 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
                     await self.client.async_pulse(
                         self.light_id, color=color, dim=dim, speed=speed, count=0
                     )
-                elif effect == EFFECT_FLASH:
-                    # The v1 flash endpoint alternates between two colors;
-                    # this integration fixes them to red / blue.
-                    await self.client.async_flash(
+                elif effect == EFFECT_FLI:
+                    # FLI ("GetFlashyIndication"): alternating red / blue flash,
+                    # served by the v1 flash endpoint.
+                    await self.client.async_fli(
                         self.light_id,
                         color_a="red",
                         color_b="blue",
                         dim=dim,
                         speed=speed,
                         count=0,
-                    )
-                elif effect == EFFECT_FLI:
-                    await self.client.async_fli(
-                        self.light_id, color=color, dim=dim, speed=speed, count=0
                     )
                 else:
                     await self.client.async_turn_on(

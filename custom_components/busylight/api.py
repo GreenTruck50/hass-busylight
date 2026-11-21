@@ -11,7 +11,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
-    EFFECT_FLASH_PATH,
     EFFECT_FLI_PATH,
     EFFECT_PULSE_PATH,
     EFFECT_RAINBOW_PATH,
@@ -176,7 +175,7 @@ class BusylightApiClient:
         }
         return await self._request("POST", path, payload)
 
-    async def async_flash(
+    async def async_fli(
         self,
         light_id: int,
         color_a: str = "red",
@@ -186,8 +185,12 @@ class BusylightApiClient:
         count: int = 0,
         led: int = 0,
     ) -> dict[str, Any]:
-        """Start flash effect (alternate between two colors)."""
-        path = EFFECT_FLASH_PATH.format(light_id=light_id)
+        """Start the FLI pattern (alternating red / blue flash).
+
+        FLI ("GetFlashyIndication") is served by the v1 flash endpoint; the
+        deprecated ``GET /light/{light_id}/fli`` route is not used.
+        """
+        path = EFFECT_FLI_PATH.format(light_id=light_id)
         payload = {
             "color_a": color_a,
             "color_b": color_b,
@@ -197,26 +200,6 @@ class BusylightApiClient:
             "led": led,
         }
         return await self._request("POST", path, payload)
-
-    async def async_fli(
-        self,
-        light_id: int,
-        color: str = "red",
-        dim: float = 1.0,
-        speed: str = "slow",
-        count: int = 0,
-        led: int = 0,
-    ) -> dict[str, Any]:
-        """Start legacy FLI effect (compatibility GET endpoint)."""
-        path = EFFECT_FLI_PATH.format(light_id=light_id)
-        params = {
-            "color": color,
-            "dim": max(0.0, min(1.0, dim)),
-            "speed": speed,
-            "count": count,
-            "led": led,
-        }
-        return await self._request("GET", path, params=params)
 
     async def async_close(self) -> None:
         """Close the client (session is shared with HA)."""
