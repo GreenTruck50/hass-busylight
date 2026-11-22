@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Home Assistant local test artifacts
+config/.storage/
+home-assistant.log
+.pytest_cache/
+.ruff_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

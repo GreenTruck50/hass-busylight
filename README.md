@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GreenTruck50/hass-busylight/main/logo.png" alt="Busylight for Humans" width="180" />
+</p>
+
 # Home Assistant – Busylight for Humans
 
 Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny/busylight) Web API server (`busyserve`) into proper Home Assistant devices and RGB light entities with effects.
@@ -102,6 +106,28 @@ Endpoints the integration calls:
 - `POST /api/v1/effects/{id}/flash` – used for **Police Flash (fli)**: `color_a: "red"`, `color_b: "blue"`, `dim`, `speed`, `count`, `led`
 
 `speed` is always one of `slow`, `medium` or `fast` and comes from the effect name chosen in Home Assistant. The deprecated compatibility routes (`GET /light/{id}/fli`, `/light/{id}/on`, …) are never called. `GET /api/v1/lights/{id}/status` is implemented in the API client but is not used for polling — the coordinator refreshes every light with a single `GET /api/v1/lights` call.
+
+## Brand assets
+
+Since Home Assistant **2026.3**, a custom integration ships its own brand images: a `brand/` folder inside the integration. No upstream submission, no manifest key.
+
+```
+custom_components/busylight/brand/
+├── icon.png        icon@2x.png          <- 256 px / 512 px, light themes
+├── dark_icon.png   dark_icon@2x.png     <- 256 px / 512 px, dark themes
+├── logo.png        logo@2x.png
+└── dark_logo.png   dark_logo@2x.png
+```
+
+Only those eight file names are recognised. Local images automatically take priority over the `brands.home-assistant.io` CDN, and Home Assistant serves them through its own proxy (`/api/brands/integration/busylight/<image>`, cached on disk), so the icon appears in the integrations dashboard, config flow and devices even without internet.
+
+The wordmark is supplied in two colourways on full transparency — white + green for dark themes, dark ink + **the same green** for light themes (the source art is white-on-black, so the background was keyed out rather than left opaque, and the green accent is never re-tinted).
+
+HACS requires this as well: its **Check brands** validation wants a `brand` directory containing at least an `icon.png`, which is what lets the repository be accepted into the HACS / Marketplace defaults.
+
+The root [`logo.png`](logo.png) is the 1024×1024 master artwork; it is used for the banner above and works well as the GitHub social-preview image, and it is not part of the installed integration.
+
+> There is no `images/` convention in Home Assistant or HACS — that folder name is only a repo-local habit for README screenshots. Brand images belong in `brand/`. Submitting to [home-assistant/brands](https://github.com/home-assistant/brands) (`custom_integrations/busylight/icon.png` + `icon@2x.png`, sized 128–256 px and 256–512 px) is now optional: it only helps installs older than 2026.3, and your local files win regardless.
 
 ## Development / Contributing
 
