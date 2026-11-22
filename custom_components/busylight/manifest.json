@@ -3,6 +3,7 @@
   "name": "Busylight for Humans",
   "codeowners": ["@GreenTruck50"],
   "config_flow": true,
+  "categories": ["lighting", "sensors.motion_presence"],
   "documentation": "https://github.com/GreenTruck50/hass-busylight",
   "integration_type": "hub",
   "iot_class": "local_polling",

@@ -1,7 +1,5 @@
 {
   "name": "Busylight for Humans",
   "render_readme": true,
-  "domains": ["light", "binary_sensor"],
-  "homeassistant": "2024.1.0",
-  "iot_class": "Local Polling"
+  "homeassistant": "2024.1.0"
 }
