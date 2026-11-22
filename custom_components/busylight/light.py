@@ -40,6 +40,12 @@ _LOGGER = logging.getLogger(__name__)
 _ASSUMED_STATE_SECONDS = 3.0
 _DEFAULT_RGB = (0, 255, 0)
 
+# busyserve folds `dim` into the color before driving the hardware and rounds
+# every channel independently, so comparing reported colors needs a tolerance
+# that grows a little with the brightness of the color.
+_DIM_TOLERANCE = 2.0
+_DIM_TOLERANCE_RATIO = 0.03
+
 
 def _rgb_to_hex(rgb: tuple[int, int, int] | list[int]) -> str:
     """Convert RGB tuple to hex string the API accepts."""
@@ -52,6 +58,61 @@ def _brightness_to_dim(brightness: int | None) -> float:
     if brightness is None:
         return 1.0
     return max(0.0, min(1.0, brightness / 255.0))
+
+
+def _dim_from_rgb(rgb: tuple[int, int, int]) -> float:
+    """Best available guess of the `dim` behind a reported RGB color.
+
+    Upstream has no hardware brightness: `dim` is applied by multiplying every
+    channel of the requested color (``scale_color`` in ``busylight/color.py``)
+    and ``GET /api/v1/lights`` has no ``dim`` field at all — it only reports
+    ``rgb``/``is_on``. The brightest channel is therefore the only dim hint.
+    """
+    return max(0, min(255, max(rgb))) / 255.0
+
+
+def _split_dim(rgb: tuple[int, int, int]) -> tuple[tuple[int, int, int], int]:
+    """Split a color reported by the API into (color, brightness).
+
+    Home Assistant expects `rgb_color` to describe the hue/saturation and to be
+    independent of brightness, so the dim upstream baked into the color is
+    lifted back out: the brightest channel is restored to 255 and the removed
+    factor is reported as the entity's brightness instead.
+    """
+    dim = _dim_from_rgb(rgb)
+    if dim <= 0.0:
+        return rgb, 0
+
+    scaled = tuple(max(0, min(255, round(c / dim))) for c in rgb)
+    return (scaled[0], scaled[1], scaled[2]), int(round(dim * 255))
+
+
+def _is_dimmed_version(
+    reported: tuple[int, int, int], color: tuple[int, int, int]
+) -> bool:
+    """Return True if `reported` is `color` multiplied by one dim factor.
+
+    Used to tell "the same color, dimmed by someone else" (move the difference
+    onto the HA brightness slider, keep the color) from "a different color"
+    (adopt it). The per-channel tolerance absorbs upstream's independent
+    channel rounding at low dim values.
+    """
+    max_reported = max(reported)
+    max_color = max(color)
+    if max_reported == 0 or max_color == 0:
+        return False
+
+    dim = max_reported / max_color
+    if dim > 1.0:
+        return False
+
+    tolerance = _DIM_TOLERANCE + _DIM_TOLERANCE_RATIO * max_reported
+    return all(
+        abs(expected - actual) <= tolerance
+        for expected, actual in zip(
+            (channel * dim for channel in color), reported, strict=True
+        )
+    )
 
 
 def _parse_rgb(value: Any) -> tuple[int, int, int] | None:
@@ -144,8 +205,15 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
         )
 
         self._is_on = bool(light_data.get("is_on", False))
-        self._rgb_color = _parse_rgb(light_data.get("rgb")) or _DEFAULT_RGB
-        self._brightness = 255
+        api_rgb = _parse_rgb(light_data.get("rgb"))
+        if api_rgb is None:
+            self._rgb_color = _DEFAULT_RGB
+            self._brightness = 255
+        else:
+            # The reported color already has upstream's `dim` folded into it,
+            # so split it into a pure color plus brightness instead of showing
+            # a dark color at full brightness.
+            self._rgb_color, self._brightness = _split_dim(api_rgb)
         self._effect = EFFECT_OFF
 
     def _mark_assumed(self) -> None:
@@ -191,20 +259,30 @@ class BusylightLight(CoordinatorEntity[BusylightCoordinator], LightEntity):
         api_on = bool(data.get("is_on", False))
         api_rgb = _parse_rgb(data.get("rgb"))
 
-        # Only adopt is_on from API when we are in solid (no effect) mode,
-        # or when the API clearly agrees we are on.
-        if self._effect == EFFECT_OFF:
-            self._is_on = api_on
-            if api_on and api_rgb is not None:
-                self._rgb_color = api_rgb
-            elif not api_on:
-                # Off: keep last known color so the UI does not flash black
-                pass
-        else:
-            # Effect running: trust local on + color; only update if API has a real color
+        if self._effect != EFFECT_OFF:
+            # Effect running: the reported rgb is whichever animation frame is
+            # lit right now (pulse ramps black -> color -> black) and is_on is
+            # often false, so keep the locally commanded color and brightness.
             self._is_on = True
-            if api_rgb is not None:
-                self._rgb_color = api_rgb
+            self.async_write_ha_state()
+            return
+
+        # Solid color mode: is_on comes from the API, and the reported color is
+        # the commanded color with `dim` already multiplied into every channel.
+        self._is_on = api_on
+        if api_rgb is not None:
+            color = self._rgb_color or _DEFAULT_RGB
+            if _is_dimmed_version(api_rgb, color):
+                # Same color, only dim changed (e.g. dimmed by the CLI or
+                # another client): keep the color, move the difference onto the
+                # Home Assistant brightness slider.
+                self._brightness = int(round(_dim_from_rgb(api_rgb) * 255))
+            else:
+                # A genuinely different color: adopt it, but keep the brightness
+                # interpretation so rgb_color stays independent of dim.
+                self._rgb_color, self._brightness = _split_dim(api_rgb)
+        # Nothing usable reported (off / mid-effect black): keep the last known
+        # color and brightness so the UI does not flash black.
 
         self.async_write_ha_state()
 

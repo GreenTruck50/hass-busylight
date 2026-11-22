@@ -10,7 +10,7 @@ Unofficial custom integration that turns a [Busylight for Humans](https://github
 
 - **Config flow** – add a Busylight host (IP/hostname + port, optional Basic Auth)
 - **One device per `busyserve` host**, carrying a **Health** connectivity binary sensor (`status`, `lights_available`, `timestamp`)
-- **One device per physical light** discovered on that host, each with an **RGB light entity** and brightness (`dim` 0.0–1.0)
+- **One device per physical light** discovered on that host, each with an **RGB light entity** and brightness (`dim` 0.0–1.0) — dimming never changes the entity's color, see [Brightness & dim](#brightness--dim)
 - **Effects** exposed natively on the light entity — every animated effect is offered in three speeds:
 
   | Effect | Names in the effect picker | Behaviour |
@@ -92,12 +92,47 @@ After adding the host, Home Assistant creates a `Busylight (<host>)` device with
 - Effect matching is case-insensitive, names without a speed (`effect: "rainbow"`) default to `medium`, and the older spellings (`"fli"`, `"fli fast"`) keep working even though the picker shows **Police Flash (fli)**.
 - The integration polls the API every 10 s by default; change it to anything from 5 to 300 seconds in the integration's **Configure** dialog.
 
+## Brightness & dim
+
+Upstream `busyserve` has **no hardware brightness control**. `dim` is applied in
+software by multiplying every channel of the requested color — in
+`busylight/color.py`, `parse_color_string(color, dim)` → `scale_color()` does
+`round(v * dim)` per channel, and `api/v1/lights/service.py` then drives the
+device with that already-dimmed RGB tuple. The core `Light.on()` in
+`busylight-core` only accepts RGB 0–255; no vendor driver implements a dim bit
+(the hardware "dim" request in [upstream issue #129](https://github.com/JnyJny/busylight/issues/129) was closed by scaling the hex value by hand).
+
+Two consequences, and how this integration handles them:
+
+- **The API reports the dimmed color.** `GET /api/v1/lights` returns `rgb` *after*
+  `dim` was folded in, and `LightStatus` has **no `dim` field**, so the dim is not
+  readable — the brightest channel is the only hint. The integration therefore
+  splits the reported color back into a pure color plus brightness: the color
+  shown in Home Assistant (`rgb_color`) stays constant while you dim, and the
+  dim lands on the **brightness slider** instead.
+- **Brightness is synced from the device.** If the light is dimmed by something
+  other than Home Assistant (the CLI, a `busyboard` status, another client), the
+  next poll updates the entity's brightness to match — it no longer looks like
+  someone changed the color. A 100% red light dimmed to 20% externally reads as
+  `rgb_color: [255, 0, 0]` + `brightness: 51`, not `[51, 0, 0]` at full brightness.
+
+Known limitation: because upstream never reports `dim`, a *deliberately* dark
+color and a bright color that has been dimmed are indistinguishable on the
+wire. A color whose brightest channel is below 255 is read as
+"full color, reduced brightness". Send colors at full intensity (`rgb_color`
+plus `brightness`) and the round-trip is exact; a `#330000`-style dark hex sent
+with `brightness: 255` will read back as `#ff0000` at 20% brightness.
+
+While an effect runs, the integration ignores the reported color and brightness
+altogether — effects animate (pulse ramps black → color → black), so a poll
+would otherwise capture whichever intermediate frame happened to be lit.
+
 ## Supported API surface
 
 Endpoints the integration calls:
 
 - `GET /api/v1/system/health` – feeds the Health binary sensor
-- `GET /api/v1/lights` – device discovery and state polling
+- `GET /api/v1/lights` – device discovery and state polling (`rgb` comes back with `dim` already multiplied into it; the schema has no `dim` field, so brightness is inferred from the brightest channel)
 - `POST /api/v1/lights/{id}/on` – solid color (`color` as hex, `dim` 0.0–1.0, `led`)
 - `POST /api/v1/lights/{id}/off`
 - `POST /api/v1/lights/{id}/blink` – `color`, `dim`, `speed`, `count`, `led`
