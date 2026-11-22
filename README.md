@@ -4,7 +4,7 @@
 
 # Home Assistant – Busylight for Humans
 
-Custom integration that turns a [Busylight for Humans](https://github.com/JnyJny/busylight) Web API server (`busyserve`) into proper Home Assistant devices and RGB light entities with effects.
+Unofficial custom integration that turns a [Busylight for Humans](https://github.com/JnyJny/busylight) Web API server (`busyserve`) into proper Home Assistant devices and RGB light entities with effects.
 
 ## Features
 
