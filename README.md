@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/JnyJny/busylight/main/packages/busylight/assets/BusyLightForHumans.png" alt="Busylight for Humans logo" width="180" />
+  <img src="https://raw.githubusercontent.com/JnyJny/busylight/main/packages/busylight/assets/BusyLightForHumans.png" alt="Busylight for Humans logo" width="500">
 </p>
 
 # Home Assistant – Busylight for Humans
